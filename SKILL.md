@@ -74,8 +74,7 @@ the Windows Documents folder under `Hermes-SEO`. No recurring jobs.
    clearly marked; never manually write a substitute Markdown report. 
    `status` provides an exact resume checkpoint even across Hermes sessions.
    If the context fills, stop with the run path and next label rather than
-   restarting the run. After rendering, Read its compact
-   read the compact report, then add at most five evidence-linked recommendations and a proposed
+   restarting the run. After rendering, read the compact report, then add at most five evidence-linked recommendations and a proposed
    14-day plan in that site's `strategy.json`, as documented. Use business intent
    only when supported by the site/user; label unverified topics as hypotheses.
    Re-render. Carry a maximum 150-word summary forward to the next site.
