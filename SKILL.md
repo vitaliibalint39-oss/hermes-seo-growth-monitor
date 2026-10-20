@@ -1,7 +1,7 @@
 ---
 name: seo-growth-monitor
 description: Monitor SEO traffic, indexing, and growth opportunities.
-version: 1.1.0
+version: 1.1.1
 platforms: [windows]
 metadata:
   hermes:
@@ -18,6 +18,46 @@ illustrate ta551.info, siteprobelab.com, and frattina10dream.com) or build a pro
 the Windows Documents folder under `Hermes-SEO`. No recurring jobs.
 
 ## Procedure
+
+### Windows terminal execution policy (important for local Hermes)
+
+This skill runs on **Windows**, even if Hermes' terminal tool wraps commands in
+`bash -c`. A shell wrapper does NOT imply Linux, available `python3`, or
+a PATH entry for `python.exe`. Never attempt Python imports of MCP skills,
+`execute_code`, generic `python.exe`, or repeated directory searches to fix
+the terminal. Use the **already verified** Windows Python 3.10 interpreter:
+
+`C:\Users\Vitalik\AppData\Local\Programs\Python\Python310\python.exe`
+
+For the current run, the **absolute** locations are:
+- script: `C:\Users\Vitalik\AppData\Local\hermes\skills\seo-growth-monitor\scripts\monitor.py`
+- run: `C:\Users\Vitalik\Documents\Hermes-SEO\20261019-185223-e9def6`
+
+In an actual **PowerShell** session run these exact commands (no prompt prefix):
+
+```powershell
+$exe = "$env:LOCALAPPDATA\Programs\Python\Python310\python.exe"
+$script = "$env:LOCALAPPDATA\hermes\skills\seo-growth-monitor\scripts\monitor.py"
+$run = "$env:USERPROFILE\Documents\Hermes-SEO\20261019-185223-e9def6"
+& $exe $script status --run $run
+& $exe $script next --run $run
+```
+
+If the terminal tool is **Bash-only** and can run Windows `.exe` files,
+attempt one explicit-interpreter call without `cd`, e.g.:
+
+```bash
+"/c/Users/Vitalik/AppData/Local/Programs/Python/Python310/python.exe" "/c/Users/Vitalik/AppData/Local/hermes/skills/seo-growth-monitor/scripts/monitor.py" status --run 'C:\Users\Vitalik\Documents\Hermes-SEO\20261019-185223-e9def6'
+```
+
+Never pass a bare run ID as `--run`. If that **single** attempt fails or
+the wrapper cannot invoke Windows binaries, stop local terminal troubleshooting;
+give the user the PowerShell commands above to execute. Preserve state.
+The MCP provider calls remain **native Hermes tools**, not terminal calls.
+Never issue another `init` for the current run or overwrite evidence.
+Do not attempt to solve this by reinstalling Python/Hermes or changing PATH.
+
+### Standard sequence
 
 1. First call the native Hermes tool `mcp__seo_traffic__sites_list` with
    `{"engine":"google"}`. MCP is already configured. These are registered
