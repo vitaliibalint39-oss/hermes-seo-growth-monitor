@@ -196,9 +196,57 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(result['counts']['planned'], 27)
         self.assertEqual(result['counts']['completed'], 27)
         self.assertEqual(result['counts']['missing'], 0)
-        self.assertEqual(monitor.next_request(run)['state'], 'complete')
+        self.assertEqual(monitor.next_request(run)['state'], 'structurally_complete_unverified')
         self.assertEqual(monitor.status(run, site='siteprobelab.com')['counts']['planned'], 9)
 
+
+
+    def test_imported_evidence_is_never_cryptographically_authenticated(self):
+        run = self.new_run()
+        raw = self.root/'unverified.json'
+        raw.write_text('{"google":[]}', encoding='utf-8')
+        path = monitor.capture(run, 'ta551.info', 'gsc-current7', raw)
+        imported = monitor.read(path)
+        self.assertEqual(imported['source_provenance']['capture_method'], 'file_import')
+        self.assertEqual(len(imported['source_provenance']['sha256']), 64)
+        self.assertFalse(imported['source_provenance']['authenticated_mcp_origin'])
+        # A forged flag does not turn a model-generated file into an MCP receipt.
+        imported['source_provenance']['authenticated_mcp_origin'] = True
+        monitor.save(path, imported)
+        summary = monitor.status(run)
+        self.assertEqual(summary['counts']['completed'], 1)
+        self.assertEqual(summary['provenance']['authenticated_mcp_responses'], 0)
+        self.assertEqual(summary['provenance']['unverified_imports'], 1)
+        monitor.render(run)
+        report = (run/'summary.md').read_text(encoding='utf-8')
+        self.assertIn('real MCP origin not authenticated', report)
+
+    def test_claim_blocks_duplicate_mcp_dispatch_until_capture(self):
+        run = self.new_run()
+        claimed = monitor.next_request(run, claim=True)
+        self.assertEqual(claimed['state'], 'claimed')
+        self.assertEqual(claimed['label'], 'gsc-current7')
+        blocked = monitor.next_request(run, claim=True)
+        self.assertEqual(blocked['state'], 'awaiting_capture')
+        self.assertEqual(blocked['label'], 'gsc-current7')
+        self.assertTrue((run/'inflight.json').exists())
+        raw = self.root/'claimed.json'
+        raw.write_text('{"google":[]}', encoding='utf-8')
+        monitor.capture(run, 'ta551.info', 'gsc-current7', raw)
+        following = monitor.next_request(run, claim=True)
+        self.assertEqual(following['state'], 'claimed')
+        self.assertEqual(following['label'], 'gsc-previous7')
+        self.assertEqual(monitor.status(run)['counts']['completed'], 1)
+
+    def test_release_claim_requires_explicit_call_and_preserves_evidence(self):
+        run = self.new_run()
+        monitor.next_request(run, claim=True)
+        self.assertEqual(monitor.next_request(run)['state'], 'awaiting_capture')
+        monitor.release_claim(run)
+        self.assertFalse((run/'inflight.json').exists())
+        self.assertEqual(monitor.next_request(run)['state'], 'pending')
+        with self.assertRaisesRegex(ValueError, 'No active claim'):
+            monitor.release_claim(run)
 
 
 if __name__ == '__main__':
