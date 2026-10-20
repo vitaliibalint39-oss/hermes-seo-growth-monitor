@@ -667,9 +667,9 @@ def main():
     p.add_argument('--site')
     p = sub.add_parser('next'); p.add_argument('--run',required=True,type=Path)
     p.add_argument('--site'); p.add_argument('--claim',action='store_true')
-    p = sub.add_parser('release-claim'); p.add_argument('--run',required=True,type=Path)
     p.add_argument('--skip-tool',action='append',default=[],
                    choices=['analytics_query','analytics_advanced','sitemaps_list','inspection_inspect'])
+    p = sub.add_parser('release-claim'); p.add_argument('--run',required=True,type=Path)
     args = parser.parse_args()
     try:
         if args.command == 'init':
