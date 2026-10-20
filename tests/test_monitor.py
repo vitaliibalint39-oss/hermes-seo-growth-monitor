@@ -219,7 +219,7 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(summary['provenance']['unverified_imports'], 1)
         monitor.render(run)
         report = (run/'summary.md').read_text(encoding='utf-8')
-        self.assertIn('real MCP origin not authenticated', report)
+        self.assertIn('NOT proof that an actual MCP provider was called', report)
 
     def test_claim_blocks_duplicate_mcp_dispatch_until_capture(self):
         run = self.new_run()
