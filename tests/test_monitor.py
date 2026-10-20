@@ -107,6 +107,99 @@ class MonitorTests(unittest.TestCase):
         self.assertIsNone(snapshot['sites']['ta551.info']['metrics']['current7'])
         self.assertIn('Unavailable', (run/'ta551.info.md').read_text(encoding='utf-8'))
 
+    def test_checkpoint_pending_then_valid_capture(self):
+        run = self.new_run()
+        state = monitor.status(run)
+        self.assertEqual(state['counts'], {'planned': 9, 'completed': 0, 'missing': 9, 'invalid': 0})
+        first = monitor.next_request(run)
+        self.assertEqual((first['state'], first['site'], first['label']),
+                         ('pending', 'ta551.info', 'gsc-current7'))
+        self.assertEqual(first['tool'], 'mcp__seo_traffic__analytics_query')
+        self.assertEqual(first['args'], monitor.read(run/'requests-ta551.info.json')['gsc-current7']['args'])
+        raw = self.root/'first.json'
+        raw.write_text(json.dumps({'google': [{'clicks': 0, 'impressions': 7, 'position': 14.57}]}), encoding='utf-8')
+        monitor.capture(run, 'ta551.info', 'gsc-current7', raw)
+        self.assertEqual(monitor.status(run)['counts']['completed'], 1)
+        self.assertEqual(monitor.next_request(run)['label'], 'gsc-previous7')
+        self.assertEqual(monitor.status(run)['counts']['missing'], 8)
+
+    def test_empty_gsc_response_is_saved_not_measured_zero(self):
+        run = self.new_run()
+        raw = self.root/'empty.json'
+        raw.write_text('{"google":[]}', encoding='utf-8')
+        monitor.capture(run, 'ta551.info', 'gsc-current7', raw)
+        self.assertIn('gsc-current7', monitor.status(run)['sites']['ta551.info']['completed'])
+        monitor.render(run)
+        snap = monitor.read(run/'snapshot.json')
+        self.assertIsNone(snap['sites']['ta551.info']['metrics']['current7'])
+
+    def test_invalid_evidence_blocks_next_without_overwrite(self):
+        run = self.new_run()
+        raw = self.root/'wrong.json'
+        raw.write_text(json.dumps({'google':[{'clicks': 2, 'impressions': -1, 'position': 1}]}), encoding='utf-8')
+        original = monitor.capture(run, 'ta551.info', 'gsc-current7', raw)
+        self.assertEqual(monitor.status(run)['counts']['invalid'], 1)
+        nxt = monitor.next_request(run)
+        self.assertEqual((nxt['state'], nxt['label']), ('blocked_invalid', 'gsc-current7'))
+        self.assertTrue(original.exists())
+        with self.assertRaisesRegex(ValueError, 'already exists'):
+            monitor.capture(run, 'ta551.info', 'gsc-current7', raw)
+
+    def test_invalid_scope_and_missing_site(self):
+        run = self.new_run()
+        raw = self.root/'scope.json'
+        raw.write_text('{"google":[]}', encoding='utf-8')
+        path = monitor.capture(run, 'ta551.info', 'gsc-current7', raw)
+        obj = monitor.read(path)
+        obj['args']['startDate'] = '2020-01-01'
+        path.write_text(json.dumps(obj), encoding='utf-8')
+        self.assertIn('gsc-current7', monitor.status(run)['sites']['ta551.info']['invalid'])
+        self.assertEqual(monitor.next_request(run)['state'], 'blocked_invalid')
+        with self.assertRaisesRegex(ValueError, 'Unknown site'):
+            monitor.status(run, site='not-owned.example')
+
+    def test_wrapped_native_mcp_result_is_accepted_without_changing_metrics(self):
+        run = self.new_run()
+        raw = self.root/'native.json'
+        raw.write_text(json.dumps({'result': {'google': [
+            {'clicks': 0, 'impressions': 7, 'ctr': 0, 'position': 14.5714285714}
+        ]}}), encoding='utf-8')
+        monitor.capture(run, 'ta551.info', 'gsc-current7', raw)
+        self.assertEqual(monitor.status(run)['counts']['completed'], 1)
+        monitor.render(run)
+        snap = monitor.read(run/'snapshot.json')
+        self.assertEqual(snap['sites']['ta551.info']['metrics']['current7']['impressions'], 7)
+
+    def test_skip_tool_is_explicit_and_does_not_mark_completed(self):
+        cfg = self.root/'with-ga4.json'
+        cfg.write_text(json.dumps({'sites': {'example.org': {
+            'gsc_property': 'sc-domain:example.org', 'ga4_property': '123456'
+        }}}), encoding='utf-8')
+        run = monitor.init(output=self.root, end=str(self.end), config=cfg, synthetic=True)
+        raw = self.root/'ok.json'
+        raw.write_text('{"google":[]}', encoding='utf-8')
+        monitor.capture(run, 'example.org', 'gsc-current7', raw)
+        self.assertEqual(monitor.next_request(run)['label'], 'ga4-current7')
+        self.assertEqual(monitor.next_request(run, skip_tools=['analytics_advanced'])['label'],
+                         'gsc-previous7')
+        self.assertEqual(monitor.status(run)['counts']['missing'], 12)
+
+    def test_all_planned_evidence_completed_resumes_to_complete(self):
+        run = monitor.init(output=self.root, end=str(self.end), synthetic=True)
+        raw = self.root/'all.json'
+        raw.write_text('{"google":[]}', encoding='utf-8')
+        plan = monitor.read(run/'plan.json')
+        for site in plan['sites']:
+            for label in monitor.requests(plan,site):
+                monitor.capture(run, site, label, raw)
+        result = monitor.status(run)
+        self.assertEqual(result['counts']['planned'], 27)
+        self.assertEqual(result['counts']['completed'], 27)
+        self.assertEqual(result['counts']['missing'], 0)
+        self.assertEqual(monitor.next_request(run)['state'], 'complete')
+        self.assertEqual(monitor.status(run, site='siteprobelab.com')['counts']['planned'], 9)
+
+
 
 if __name__ == '__main__':
     unittest.main()

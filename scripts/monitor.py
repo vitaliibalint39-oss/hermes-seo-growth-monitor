@@ -169,6 +169,13 @@ def unwrap(response):
         response = payloads[0]
     if isinstance(response, dict) and 'error' in response:
         raise ValueError('Provider error (details withheld)')
+    # Some Hermes native tool bridges wrap a scoped response in {"result": ...}.
+    # Unwrap only a recognized Google scope, never a generic nested "result"
+    # (which may be a legitimate URL Inspection payload).
+    if (isinstance(response, dict) and set(response) == {'result'}
+            and isinstance(response['result'], dict)
+            and 'google' in response['result']):
+        response = response['result']
     return response
 
 
@@ -483,6 +490,101 @@ def render(run):
     return run/'summary.md'
 
 
+
+def check_record(folder, label, request):
+    """Classify one on-disk evidence record without modifying it."""
+    target = folder/(label+'.json')
+    if not target.is_file():
+        return 'missing'
+    value, state = evidence(folder, label, request)
+    if state != 'Available':
+        return 'invalid'
+    try:
+        tool = request['tool']
+        if tool == 'analytics_query':
+            if not isinstance(value, list):
+                raise ValueError('Google analytics must return an array')
+            if label in ('gsc-current7', 'gsc-previous7', 'gsc-current28', 'gsc-previous28'):
+                totals(value)  # Empty rows are valid evidence, but not measured zero.
+            else:
+                if len(value) > 25:
+                    raise ValueError('Grouped response exceeds approved sample size')
+                for row in value:
+                    if (not isinstance(row, dict) or not isinstance(row.get('keys'), list)
+                            or len(row['keys']) != 1 or not isinstance(row['keys'][0], str)):
+                        raise ValueError('Invalid grouped dimension')
+                    metric(row)
+        elif tool == 'analytics_advanced':
+            if not isinstance(value, dict):
+                raise ValueError('GA4 response must be an object')
+        elif tool == 'sitemaps_list':
+            if not isinstance(value, list):
+                raise ValueError('Sitemaps response must be an array')
+        elif tool == 'inspection_inspect':
+            if not isinstance(value, (list, dict)):
+                raise ValueError('Inspection response must be an array or object')
+        else:
+            raise ValueError('Unknown planned tool')
+    except (ValueError, KeyError, TypeError, AttributeError, IndexError):
+        return 'invalid'
+    return 'completed'
+
+
+def status(run, site=None):
+    """Report resumable progress based on files, not LLM claims."""
+    run = Path(run)
+    plan = read(run/'plan.json')
+    if not isinstance(plan, dict) or plan.get('schema') != SCHEMA:
+        raise ValueError('Unsupported plan')
+    sites = plan.get('sites')
+    if not isinstance(sites, dict) or not sites:
+        raise ValueError('No configured sites')
+    if site is not None and site not in sites:
+        raise ValueError('Unknown site')
+    if plan.get('windows') != windows(dt.date.fromisoformat(plan['windows']['current28']['endDate'])):
+        raise ValueError('Inconsistent date windows')
+    result = {'run': str(run), 'counts': {'planned': 0, 'completed': 0, 'missing': 0, 'invalid': 0}, 'sites': {}}
+    for name in ([site] if site else sites):
+        records = {'completed': [], 'missing': [], 'invalid': []}
+        folder = run/'evidence'/name
+        for label, request in requests(plan, name).items():
+            state = check_record(folder, label, request)
+            records[state].append(label)
+            result['counts'][state] += 1
+            result['counts']['planned'] += 1
+        result['sites'][name] = {'counts': {
+            'planned': sum(len(v) for v in records.values()),
+            'completed': len(records['completed']),
+            'missing': len(records['missing']),
+            'invalid': len(records['invalid'])}, **records}
+    return result
+
+
+def next_request(run, site=None, skip_tools=()):
+    """Return at most one verified planned operation; never invoke MCP here."""
+    run = Path(run)
+    state = status(run, site=site)
+    plan = read(run/'plan.json')
+    excluded = set(skip_tools)
+    for name, details in state['sites'].items():
+        invalid, missing = set(details['invalid']), set(details['missing'])
+        for label, request in requests(plan, name).items():
+            if request['tool'] in excluded:
+                continue
+            if label in invalid:
+                return {'state': 'blocked_invalid', 'run': str(run), 'site': name,
+                        'label': label, 'evidence': str(run/'evidence'/name/(label+'.json')),
+                        'action': 'Review the existing invalid record; never overwrite automatically',
+                        'counts': state['counts']}
+            if label in missing:
+                return {'state': 'pending', 'run': str(run), 'site': name,
+                        'label': label, 'tool': 'mcp__seo_traffic__'+request['tool'],
+                        'args': request['args'], 'counts': state['counts']}
+    complete = state['counts']['missing'] == 0 and state['counts']['invalid'] == 0
+    return {'state': 'complete' if complete else 'no_eligible_requests',
+            'run': str(run), 'skipped_tools': sorted(excluded), 'counts': state['counts']}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='command', required=True)
@@ -495,6 +597,12 @@ def main():
     p = sub.add_parser('capture'); p.add_argument('--run',required=True,type=Path)
     p.add_argument('--site',required=True); p.add_argument('--label',required=True)
     p.add_argument('--response',required=True,type=Path)
+    p = sub.add_parser('status'); p.add_argument('--run',required=True,type=Path)
+    p.add_argument('--site')
+    p = sub.add_parser('next'); p.add_argument('--run',required=True,type=Path)
+    p.add_argument('--site')
+    p.add_argument('--skip-tool',action='append',default=[],
+                   choices=['analytics_query','analytics_advanced','sitemaps_list','inspection_inspect'])
     args = parser.parse_args()
     try:
         if args.command == 'init':
@@ -503,6 +611,10 @@ def main():
             print(render(args.run))
         elif args.command == 'capture':
             print(capture(args.run,args.site,args.label,args.response))
+        elif args.command == 'status':
+            print(json.dumps(status(args.run, args.site), indent=2))
+        elif args.command == 'next':
+            print(json.dumps(next_request(args.run, args.site, args.skip_tool), indent=2))
         else:
             set_property(args.run,args.site,args.value); print('Local request plan updated')
     except (OSError,ValueError,KeyError,TypeError) as exc:

@@ -87,6 +87,37 @@ The assistant gathers data through Hermes **native MCP tools**, then hands saved
 - This project does **not** provide keys, account access, a bundled MCP server, or a guarantee of indexing or traffic growth.
 - Review responses before saving them as evidence. Do not store access tokens, cookies, raw auth headers or other credentials in reports.
 
+## Resuming an interrupted audit (v1.1.0)
+
+Hermes can call MCP tools but local models sometimes skip steps, repeat old
+summaries, or cannot batch tool calls. The monitor now exposes deterministic,
+read-only progress commands; they **do not bypass native MCP authorization**
+or run requests automatically.
+
+```powershell
+$skill = "$env:LOCALAPPDATA\hermes\skills\seo-growth-monitor\scripts\monitor.py"
+$run = "$env:USERPROFILE\Documents\Hermes-SEO\20261019-185223-e9def6"
+py -3.10 "$skill" status --run "$run"
+py -3.10 "$skill" next --run "$run"
+```
+
+The `next` output supplies one missing site/label, exact MCP callable and
+arguments. Invoke that tool in Hermes' **native tool interface**, save its
+actual raw JSON (with no invented values), and use:
+
+```powershell
+py -3.10 "$skill" capture --run "$run" --site ta551.info --label gsc-previous7 --response "$run\raw-response.json"
+py -3.10 "$skill" status --run "$run"
+```
+
+Repeat `next` / native tool call / `capture` / `status` for each approved
+request. The site and label in the example are illustrative; use the next
+planned record instead. No automatic bulk calls or background process are
+introduced. Invalid saved evidence is flagged and blocks automatic progress,
+not overwritten. An unavailable provider can be explicitly skipped with
+`next --skip-tool analytics_advanced`, leaving those records missing. A
+partial report remains partial; run `render` after collecting available data.
+
 ## Tests
 
 ```bash
