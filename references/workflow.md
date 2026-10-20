@@ -2,6 +2,28 @@
 
 ## 0. Canonical resume checkpoints (v1.1.0)
 
+### Windows terminal guard (v1.1.1)
+
+Hermes may display `bash -c` around a terminal operation while actually
+running on Windows. Before a local command, use an absolute script path and
+full `C:\\Users\\...\\Documents\\Hermes-SEO\\<run-id>` run path.
+Do not use a relative run ID or assume `python.exe` / `python3` exists on PATH.
+
+Known verified Python executable (this installation):
+`C:\\Users\\Vitalik\\AppData\\Local\\Programs\\Python\\Python310\\python.exe`.
+In PowerShell the call operator `&` permits absolute `.exe` paths.
+If only the Bash terminal bridge is exposed, use the Windows executable
+as a fully qualified `/c/Users/.../python.exe` path **once**, passing a full
+Windows run path. If it fails, **stop**, save the checkpoint, and have the
+user run the PowerShell command directly. Repeated `cd`, `find`, `python3`
+and `execute_code` probing only consumes local-model context.
+
+The presence of `plan.json` does not mean request evidence was saved.
+Count completed labels with `status`; then call `next`. Invoke a single
+native MCP request, store its **raw actual JSON** as a file, `capture`, and
+verify `status` again. Native tool calls must not be routed through Bash,
+PowerShell, custom Python adapters, or web search.
+
 The installed `scripts/monitor.py` is an **offline state machine**, not an MCP
 client. Keep all calls to `mcp__seo_traffic__*` inside Hermes' native tool
 interface with normal approval checks. Use the Windows `py -3.10` launcher if
