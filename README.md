@@ -89,6 +89,14 @@ The assistant gathers data through Hermes **native MCP tools**, then hands saved
 
 ## Resuming an interrupted audit (v1.1.0)
 
+**Windows terminal note (v1.1.1):** The user's Hermes terminal may be
+Bash-wrapped even though the system is Windows. Use the known Python 3.10
+executable at `%LOCALAPPDATA%\\Programs\\Python\\Python310\\python.exe`,
+or `py -3.10` in a real PowerShell window. Always pass the full run path.
+If the Bash bridge cannot execute the Windows binary, stop after one attempt
+and resume the checkpoint in PowerShell; do not reinitialize the audit,
+search for `python3`, rewrite reports, or install new packages.
+
 Hermes can call MCP tools but local models sometimes skip steps, repeat old
 summaries, or cannot batch tool calls. The monitor now exposes deterministic,
 read-only progress commands; they **do not bypass native MCP authorization**
