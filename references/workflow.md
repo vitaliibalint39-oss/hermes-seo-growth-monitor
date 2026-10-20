@@ -6,11 +6,11 @@
 
 Hermes may display `bash -c` around a terminal operation while actually
 running on Windows. Before a local command, use an absolute script path and
-full `C:\\Users\\...\\Documents\\Hermes-SEO\\<run-id>` run path.
+full `C:\Users\...\\Documents\\Hermes-SEO\\<run-id>` run path.
 Do not use a relative run ID or assume `python.exe` / `python3` exists on PATH.
 
 Known verified Python executable (this installation):
-`C:\\Users\\Vitalik\\AppData\\Local\\Programs\\Python\\Python310\\python.exe`.
+`C:\Users\Vitalik\\AppData\\Local\\Programs\\Python\\Python310\\python.exe`.
 In PowerShell the call operator `&` permits absolute `.exe` paths.
 If only the Bash terminal bridge is exposed, use the Windows executable
 as a fully qualified `/c/Users/.../python.exe` path **once**, passing a full
