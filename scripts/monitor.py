@@ -2,6 +2,7 @@
 import argparse
 import ctypes
 import datetime as dt
+import hashlib
 import json
 import math
 import os
@@ -142,8 +143,12 @@ def capture(run, site, label, source):
     if label not in expected:
         raise ValueError('Unknown request label')
     response = read(source)
+    # File-import hashes support traceability; they DO NOT authenticate MCP origin.
+    source_hash = hashlib.sha256(Path(source).read_bytes()).hexdigest()
     envelope = {**expected[label], 'retrieved_at': dt.datetime.now(dt.timezone.utc).isoformat(),
-                'response': response}
+                'response': response, 'source_provenance': {
+                    'capture_method': 'file_import', 'sha256': source_hash,
+                    'authenticated_mcp_origin': False}}
     target = run/'evidence'/site/(label+'.json')
     if target.exists():
         raise ValueError('Evidence already exists; use a new run to preserve history')
@@ -311,7 +316,8 @@ def render_site(run, plan, site, prior):
         except (ValueError, TypeError, KeyError):
             metrics[period] = None
             status[label] = 'Invalid ungrouped metrics'
-    marker = 'SYNTHETIC TEST DATA — NOT LIVE SEO RESULTS' if plan['synthetic'] else 'Evidence-backed where available; missing data is unknown'
+    marker = ('SYNTHETIC TEST DATA — NOT LIVE SEO RESULTS' if plan['synthetic'] else
+              'OFFLINE JSON CHECK ONLY — native MCP provenance is UNVERIFIED; missing data is unknown')
     lines = [f'# SEO report: {site}', '', marker, '', f"GSC property: {plan['sites'][site]['gsc_property']}",
              f"GA4 property: {plan['sites'][site].get('ga4_property') or 'Not configured'}", '', '## Provider coverage', '',
              'Google: see per-request status. Bing: period performance unavailable in this adapter; rotation confirmation required for any Bing call.',
@@ -472,7 +478,9 @@ def render(run):
     snap = {k:plan[k] for k in ('schema','synthetic','created_at','windows')}
     snap['sites'] = {site:render_site(run,plan,site,history(run,plan,site)) for site in plan['sites']}
     save(run/'snapshot.json',snap)
-    lines = ['# Combined SEO summary', '', 'SYNTHETIC TEST DATA' if plan['synthetic'] else 'Live-evidence report; unavailable is not zero', '']
+    lines = ['# Combined SEO summary', '', 'SYNTHETIC TEST DATA' if plan['synthetic'] else
+             'OFFLINE-VALIDATED FILES ONLY — real MCP origin not authenticated; unavailable is not zero',
+             '', 'A structurally valid JSON record is NOT proof that an actual MCP provider was called.', '']
     for site,result in snap['sites'].items():
         m = result['metrics']['current28'] or {}
         lines += [f'## {site}', '', f"28-day clicks: {fmt(m.get('clicks'))}; impressions: {fmt(m.get('impressions'))}.",
@@ -543,7 +551,10 @@ def status(run, site=None):
         raise ValueError('Unknown site')
     if plan.get('windows') != windows(dt.date.fromisoformat(plan['windows']['current28']['endDate'])):
         raise ValueError('Inconsistent date windows')
-    result = {'run': str(run), 'counts': {'planned': 0, 'completed': 0, 'missing': 0, 'invalid': 0}, 'sites': {}}
+    result = {'run': str(run), 'counts': {'planned': 0, 'completed': 0, 'missing': 0, 'invalid': 0},
+              'provenance': {'authenticated_mcp_responses': 0, 'unverified_imports': 0,
+                             'warning': 'JSON validation does not authenticate native MCP tool origin'},
+              'sites': {}}
     for name in ([site] if site else sites):
         records = {'completed': [], 'missing': [], 'invalid': []}
         folder = run/'evidence'/name
@@ -552,6 +563,9 @@ def status(run, site=None):
             records[state].append(label)
             result['counts'][state] += 1
             result['counts']['planned'] += 1
+            if state == 'completed':
+                # Even caller-supplied "authenticated" flags are not a trusted receipt.
+                result['provenance']['unverified_imports'] += 1
         result['sites'][name] = {'counts': {
             'planned': sum(len(v) for v in records.values()),
             'completed': len(records['completed']),
@@ -560,12 +574,41 @@ def status(run, site=None):
     return result
 
 
-def next_request(run, site=None, skip_tools=()):
-    """Return at most one verified planned operation; never invoke MCP here."""
+def next_request(run, site=None, skip_tools=(), claim=False):
+    """Give one task at a time; an optional on-disk claim blocks repeat dispatches."""
     run = Path(run)
     state = status(run, site=site)
     plan = read(run/'plan.json')
     excluded = set(skip_tools)
+    lock = run/'inflight.json'
+
+    if lock.exists():
+        try:
+            active = read(lock)
+            active_site, active_label = active['site'], active['label']
+            planned = requests(plan, active_site)
+            if active_label not in planned:
+                raise ValueError('Unknown claim')
+            outcome = check_record(run/'evidence'/active_site, active_label,
+                                   planned[active_label])
+        except (ValueError, KeyError, TypeError, OSError):
+            return {'state': 'blocked_claim', 'run': str(run),
+                    'action': 'Inspect inflight.json; explicit operator reset required',
+                    'counts': state['counts']}
+        if outcome == 'completed':
+            # A finished claim is safe to clear. Existing evidence is never altered.
+            lock.unlink()
+        elif outcome == 'invalid':
+            return {'state': 'blocked_invalid', 'run': str(run),
+                    'site': active_site, 'label': active_label,
+                    'evidence': str(run/'evidence'/active_site/(active_label+'.json')),
+                    'counts': state['counts']}
+        else:
+            return {'state': 'awaiting_capture', 'run': str(run),
+                    'site': active_site, 'label': active_label,
+                    'action': 'Do not call MCP again; capture the actual response or ask the operator to release the claim',
+                    'counts': state['counts']}
+
     for name, details in state['sites'].items():
         invalid, missing = set(details['invalid']), set(details['missing'])
         for label, request in requests(plan, name).items():
@@ -577,12 +620,35 @@ def next_request(run, site=None, skip_tools=()):
                         'action': 'Review the existing invalid record; never overwrite automatically',
                         'counts': state['counts']}
             if label in missing:
-                return {'state': 'pending', 'run': str(run), 'site': name,
-                        'label': label, 'tool': 'mcp__seo_traffic__'+request['tool'],
-                        'args': request['args'], 'counts': state['counts']}
+                result = {'state': 'pending', 'run': str(run), 'site': name,
+                          'label': label, 'tool': 'mcp__seo_traffic__'+request['tool'],
+                          'args': request['args'], 'counts': state['counts']}
+                if claim:
+                    claim_data = {'site': name, 'label': label,
+                                  'claimed_at': dt.datetime.now(dt.timezone.utc).isoformat()}
+                    try:
+                        # Exclusive creation ensures two processes cannot claim at once.
+                        with lock.open('x', encoding='utf-8') as handle:
+                            json.dump(claim_data, handle, ensure_ascii=False)
+                    except FileExistsError:
+                        return {'state': 'awaiting_capture', 'run': str(run),
+                                'action': 'Another process already claimed a request; use next to inspect',
+                                'counts': state['counts']}
+                    result['state'] = 'claimed'
+                return result
     complete = state['counts']['missing'] == 0 and state['counts']['invalid'] == 0
-    return {'state': 'complete' if complete else 'no_eligible_requests',
-            'run': str(run), 'skipped_tools': sorted(excluded), 'counts': state['counts']}
+    return {'state': 'structurally_complete_unverified' if complete else 'no_eligible_requests',
+            'run': str(run), 'skipped_tools': sorted(excluded),
+            'provenance': state['provenance'], 'counts': state['counts']}
+
+
+def release_claim(run):
+    """Explicit operator recovery after a claimed MCP call cannot be captured."""
+    path = Path(run)/'inflight.json'
+    if not path.exists():
+        raise ValueError('No active claim')
+    path.unlink()
+
 
 
 def main():
@@ -600,9 +666,10 @@ def main():
     p = sub.add_parser('status'); p.add_argument('--run',required=True,type=Path)
     p.add_argument('--site')
     p = sub.add_parser('next'); p.add_argument('--run',required=True,type=Path)
-    p.add_argument('--site')
+    p.add_argument('--site'); p.add_argument('--claim',action='store_true')
     p.add_argument('--skip-tool',action='append',default=[],
                    choices=['analytics_query','analytics_advanced','sitemaps_list','inspection_inspect'])
+    p = sub.add_parser('release-claim'); p.add_argument('--run',required=True,type=Path)
     args = parser.parse_args()
     try:
         if args.command == 'init':
@@ -614,7 +681,9 @@ def main():
         elif args.command == 'status':
             print(json.dumps(status(args.run, args.site), indent=2))
         elif args.command == 'next':
-            print(json.dumps(next_request(args.run, args.site, args.skip_tool), indent=2))
+            print(json.dumps(next_request(args.run, args.site, args.skip_tool, args.claim), indent=2))
+        elif args.command == 'release-claim':
+            release_claim(args.run); print('Claim released; evidence preserved')
         else:
             set_property(args.run,args.site,args.value); print('Local request plan updated')
     except (OSError,ValueError,KeyError,TypeError) as exc:

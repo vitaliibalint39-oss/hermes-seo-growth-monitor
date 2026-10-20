@@ -87,7 +87,7 @@ The assistant gathers data through Hermes **native MCP tools**, then hands saved
 - This project does **not** provide keys, account access, a bundled MCP server, or a guarantee of indexing or traffic growth.
 - Review responses before saving them as evidence. Do not store access tokens, cookies, raw auth headers or other credentials in reports.
 
-## Resuming an interrupted audit (v1.1.0)
+## Resuming an interrupted audit (v1.1.2)
 
 **Windows terminal note (v1.1.1):** The user's Hermes terminal may be
 Bash-wrapped even though the system is Windows. Use the known Python 3.10
@@ -106,7 +106,7 @@ or run requests automatically.
 $skill = "$env:LOCALAPPDATA\hermes\skills\seo-growth-monitor\scripts\monitor.py"
 $run = "$env:USERPROFILE\Documents\Hermes-SEO\20261019-185223-e9def6"
 py -3.10 "$skill" status --run "$run"
-py -3.10 "$skill" next --run "$run"
+py -3.10 "$skill" next --run "$run" --claim
 ```
 
 The `next` output supplies one missing site/label, exact MCP callable and
@@ -118,13 +118,22 @@ py -3.10 "$skill" capture --run "$run" --site ta551.info --label gsc-previous7 -
 py -3.10 "$skill" status --run "$run"
 ```
 
-Repeat `next` / native tool call / `capture` / `status` for each approved
-request. The site and label in the example are illustrative; use the next
+Repeat `next --claim` / ONE native tool call / `capture` / `status` for
+each approved request. When `next` reports `awaiting_capture`, DO NOT send
+another provider request. If the claimed call failed, an operator may explicitly
+clear the claim with `py -3.10 "$skill" release-claim --run "$run"`. Never
+auto-release claims. The site and label in the example are illustrative; use the next
 planned record instead. No automatic bulk calls or background process are
 introduced. Invalid saved evidence is flagged and blocks automatic progress,
 not overwritten. An unavailable provider can be explicitly skipped with
 `next --skip-tool analytics_advanced`, leaving those records missing. A
 partial report remains partial; run `render` after collecting available data.
+**Provenance limitation:** `completed` means structurally valid imported JSON,
+not an authenticated MCP response. `status.provenance.unverified_imports`
+reports this distinction, and a structurally complete run returns
+`structurally_complete_unverified`. The SHA-256 hash of an imported file
+helps detect accidental changes but cannot prove that the provider was
+actually called. Independent MCP/provider logs are required for that claim.
 
 ## Tests
 

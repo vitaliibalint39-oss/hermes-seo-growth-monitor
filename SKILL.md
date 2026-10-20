@@ -1,7 +1,7 @@
 ---
 name: seo-growth-monitor
 description: Monitor SEO traffic, indexing, and growth opportunities.
-version: 1.1.1
+version: 1.1.2
 platforms: [windows]
 metadata:
   hermes:
@@ -40,7 +40,7 @@ $exe = "$env:LOCALAPPDATA\Programs\Python\Python310\python.exe"
 $script = "$env:LOCALAPPDATA\hermes\skills\seo-growth-monitor\scripts\monitor.py"
 $run = "$env:USERPROFILE\Documents\Hermes-SEO\20261019-185223-e9def6"
 & $exe $script status --run $run
-& $exe $script next --run $run
+& $exe $script next --run $run --claim
 ```
 
 If the terminal tool is **Bash-only** and can run Windows `.exe` files,
@@ -75,8 +75,9 @@ Do not attempt to solve this by reinstalling Python/Hermes or changing PATH.
    provider cutoff. Read only this site's request plan. Process sites sequentially.
    For an existing run, NEVER call init again. Execute `py -3.10 scripts/monitor.py
    status --run <run>` and `py -3.10 scripts/monitor.py next --run <run>`
-   before continuing. These commands inspect real evidence files and return
-   the next exact planned operation; they never invoke MCP themselves.
+   before continuing. Claim ONE operation with `next --run <run> --claim`
+   before calling MCP. While claimed, another `next` returns `awaiting_capture`
+   instead of dispatching the same operation. These commands never invoke MCP.
 3. Use verified properties from the sites-list response. Invoke
    `mcp__seo_traffic__analytics_query`, `mcp__seo_traffic__sitemaps_list`, and
    `mcp__seo_traffic__inspection_inspect` through Hermes directly, or through
@@ -88,11 +89,14 @@ Do not attempt to solve this by reinstalling Python/Hermes or changing PATH.
    execute_code for this workflow. Never reconstruct numbers by hand.
    Limit query/page results to 25, inspections to 3, and retries to one transient
    retry. On auth/permission errors stop that provider; continue the report.
-   For each pending request returned by `next`: invoke exactly ONE native MCP
+   For each `claimed` request returned by `next --claim`: invoke exactly ONE native MCP
    tool with the returned arguments, save its actual raw JSON to a local file,
    then `py -3.10 scripts/monitor.py capture --run <run> --site <site>
    --label <label> --response <raw-json-path>`. Verify with `status`, then
-   call `next` again. Never declare a capture successful without verifying
+   call `next --claim` again. When `next` says `awaiting_capture`, do not
+   call MCP again. When a claimed call fails, request operator approval to
+   use `release-claim --run <run>`; never auto-release. Never declare a capture
+   successful without verifying
    the evidence record exists AND passes status validation. If `next`
    returns `blocked_invalid`, stop and report its path; never overwrite or
    delete evidence automatically. If a tool is unavailable, leave its record
@@ -112,7 +116,12 @@ Do not attempt to solve this by reinstalling Python/Hermes or changing PATH.
 6. Run `scripts/monitor.py render --run <path>` after collecting the available evidence.
    A partial report is permitted only if every missing/invalid request remains
    clearly marked; never manually write a substitute Markdown report. 
-   `status` provides an exact resume checkpoint even across Hermes sessions.
+   `status` provides a structural checkpoint across sessions. Its
+   `completed` records are offline JSON validations ONLY, **not**
+   authenticated provider calls. The `provenance.unverified_imports` field
+   makes this explicit. Neither an imported JSON file nor a SHA-256 hash proves
+   native MCP origin. Do not claim live GSC data is verified unless there
+   is independently checked trusted MCP invocation logging or provider evidence.
    If the context fills, stop with the run path and next label rather than
    restarting the run. After rendering, read the compact report, then add at most five evidence-linked recommendations and a proposed
    14-day plan in that site's `strategy.json`, as documented. Use business intent
