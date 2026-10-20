@@ -19,7 +19,7 @@ the Windows Documents folder under `Hermes-SEO`. No recurring jobs.
 
 ## Procedure
 
-## Windows terminal execution policy (important for local Hermes)
+### Windows terminal execution policy (important for local Hermes)
 
 This skill runs on **Windows**, even if Hermes' terminal tool wraps commands in
 `bash -c`. A shell wrapper does NOT imply Linux, available `python3`, or
@@ -56,6 +56,8 @@ give the user the PowerShell commands above to execute. Preserve state.
 The MCP provider calls remain **native Hermes tools**, not terminal calls.
 Never issue another `init` for the current run or overwrite evidence.
 Do not attempt to solve this by reinstalling Python/Hermes or changing PATH.
+
+### Standard sequence
 
 1. First call the native Hermes tool `mcp__seo_traffic__sites_list` with
    `{"engine":"google"}`. MCP is already configured. These are registered
