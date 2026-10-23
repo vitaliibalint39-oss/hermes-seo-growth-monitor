@@ -60,6 +60,60 @@ malicious statements. The helper does not execute article/model instructions.
 Free-form AI paraphrases and independent evidence crawling are outside this MVP.
 Connection errors do not produce substitute or invented AI output.
 
+### Provider compatibility and the verified local Qwen
+
+Run the main CLI directly; no `data/` adapter is needed:
+
+```powershell
+py -3 marketing/traffic-growth/traffic_growth.py draft --provider lmstudio --model qwen3.5-4b-instruct --platform linkedin --response-format json_schema --thinking off --max-tokens 4096 --timeout 120
+```
+
+This exact model ID was returned by the local LM Studio server. Model IDs on
+other installations must be obtained from their own server, not guessed.
+
+| Option | LM Studio `/v1/chat/completions` | Ollama `/api/chat` |
+| --- | --- | --- |
+| `--response-format json_schema` | Named strict JSON Schema (default) | Schema object in `format` |
+| `--response-format json` | `json_object`, only if supported | `format: json` (default) |
+| `--response-format text` | `response_format.type: text` | Omit `format` |
+| `--thinking default` | Omit thinking parameter | Omit thinking parameter |
+| `--thinking off` | `reasoning_effort: none` | `think: false` |
+| `--thinking on` | `reasoning_effort: on`, only if supported | `think: true`, only if supported |
+| `--max-tokens N` | `max_tokens` | `options.num_predict` |
+
+Modes are explicit provider-specific requests, not universal capability claims.
+Leave thinking at `default` unless the model/API supports the selected setting.
+Models requiring named effort levels rather than boolean thinking may not accept
+`on`; no unsupported mode is silently substituted. This LM Studio installation
+rejects `json_object`; the verified Qwen path uses `json_schema` and
+`reasoning_effort: none`. The native API's `reasoning: off` is not used for chat
+completions. Ollama integration is covered by offline protocol tests; a live
+Ollama inference has not been verified here.
+
+The default output budget is 4096 (allowed range 1–32768); `--timeout` sets the
+socket operation timeout in seconds (default 120, range 1–600), not an absolute
+wall-clock deadline. HTTP errors, connection failures and timeouts fail visibly
+without saving a draft or retrying inference automatically. Raw HTTP error bodies
+are not printed. Unsupported options require an explicit corrected command.
+
+In every format, the response must still be JSON containing only `quotes`: 1–3
+unique strings matching complete eligible source lines (20–900 characters).
+Schema mode constrains choices to those lines. Local validation enforces the
+same schema even if a server ignores it; duplicate JSON keys and nonstandard
+constants are rejected. Text mode does not accept arbitrary prose or code fences.
+
+LM Studio must return exactly one completion with `finish_reason: stop` and
+nonempty content. Ollama must return `done: true` and, when present,
+`done_reason: stop`; legacy responses without `done_reason` retain a null reason
+in provenance. Refusals, tool calls, malformed envelopes and truncated output
+are rejected. With thinking explicitly off, reported reasoning text or nonzero
+reasoning tokens also reject the response. Absent telemetry cannot independently
+prove that a server honored a setting.
+
+Saved `generation` metadata records requested options, returned model ID, finish
+reason and provider usage. Existing identical drafts retain their original status
+and metadata; rerunning never resets approval. Human approval remains separate.
+
 ## Campaign CSV and GA4 import
 
 UTM values use lowercase letters/digits/underscores/hyphens. Repeated generation
@@ -115,8 +169,9 @@ py -3 -m unittest discover -s tests -v
 py -3 -m py_compile marketing/traffic-growth/traffic_growth.py
 ```
 
-The suite includes all 9 unchanged SEO tests and 13 marketing tests. Model protocol
-tests use mocks, not a running model. The demo inventory was successfully retrieved
-from the live case-study URL during implementation. Live local-model inference
-has not been validated in this environment. Runtime captures and GA4 data stay
-outside version control by default.
+The suite includes all 22 original tests and 9 local AI regression tests (31 total).
+Protocol and error-path tests use mocks. Separately, a real inference through the
+main CLI with `qwen3.5-4b-instruct` passed exact-quote validation: `finish_reason:
+stop`, 1668 prompt tokens, 148 completion tokens, 0 reasoning tokens. The demo
+inventory was retrieved from the live case-study URL. Runtime captures and GA4
+data stay outside version control by default.
