@@ -208,7 +208,7 @@ py -3 -m unittest discover -s tests -v
 py -3 -m py_compile marketing/traffic-growth/traffic_growth.py
 ```
 
-The current complete suite contains 54 tests, including the SEO monitor and
+The current complete suite contains 61 tests, including the SEO monitor and
 Traffic Growth regression tests. It ran on Windows with Python 3.10.0. Both
 provider protocols, model identity checks, errors, and offline CLI commands are
 tested without network access; this validation run did not contact LM Studio or

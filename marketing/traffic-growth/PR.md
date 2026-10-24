@@ -27,8 +27,8 @@ The hash detects content changes relative to the approval record but does not
 authenticate the approver. A local user able to edit both draft and calendar JSON
 can forge approval; manual operator review remains required.
 
-Validation: 54/54 Python unit tests passed on Windows with Python 3.10.0. Coverage
-includes prior SEO monitor checks, M1-M8 data-integrity and input-safety
+Validation after integrating `origin/main`: 61/61 Python unit tests passed on
+Windows with Python 3.10.0. Coverage includes prior SEO monitor checks, M1-M8 data-integrity and input-safety
 regressions, model identity, content deduplication, approval binding, endpoint
 ports, CP1252 output, and offline CLI operations. Local provider tests are mocked;
 this validation run did not exercise live Ollama or LM Studio inference. A prior
