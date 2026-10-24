@@ -8,6 +8,14 @@ Run commands from the repository root. On Windows use `py -3`; on other systems
 replace it with `python3`. Global `--data PATH` goes **before** the command.
 Default output is `marketing/traffic-growth/data/` (gitignored). Use separate
 data directories for separate planning periods. Run one writer at a time.
+Writes use unique same-directory temporary files and atomic replacement. The
+workflow supports a single writer per data directory; concurrent commands are
+not serialized and may overwrite each other's updates. Existing symlinked data
+directories and destination files are refused where the platform exposes them.
+Windows reparse points and filesystem races cannot be ruled out portably, so use
+a private, ordinary directory for `--data`. A custom path inside the repository
+may be tracked unless covered by `.gitignore`; prefer a location outside the
+checkout or verify it with `git status` and `git check-ignore`.
 
 ## First case: Wazuh AI security lab
 
@@ -43,6 +51,9 @@ py -3 marketing/traffic-growth/traffic_growth.py draft --provider lmstudio --mod
 `--url` defaults to the first case URL. `--endpoint http://127.0.0.1:PORT` changes
 the local port (no `/v1` suffix). Only loopback HTTP origins are accepted;
 proxies and redirects are disabled. Defaults: Ollama port 11434, LM Studio 1234.
+The API's returned model ID must exactly match `--model`; there are no implicit
+aliases. A response model ID is provenance supplied by that API and does not
+prove which hardware or service performed inference.
 The protocols follow [Ollama chat](https://docs.ollama.com/api/chat) and
 [LM Studio chat completions](https://lmstudio.ai/docs/developer/openai-compat/chat-completions).
 The server must be configured to perform inference locally, using a local model.
@@ -110,9 +121,11 @@ are rejected. With thinking explicitly off, reported reasoning text or nonzero
 reasoning tokens also reject the response. Absent telemetry cannot independently
 prove that a server honored a setting.
 
-Saved `generation` metadata records requested options, returned model ID, finish
-reason and provider usage. Existing identical drafts retain their original status
-and metadata; rerunning never resets approval. Human approval remains separate.
+Saved generation provenance records requested options, returned model ID, finish
+reason and provider usage. Identical normalized draft text from different models
+shares one draft record only when the source URL, source hash and platform also
+match; every inference is retained in `model_provenance`. Separate source URLs
+remain separate records. Rerunning does not reset draft status.
 
 ## Campaign CSV and GA4 import
 
@@ -133,6 +146,10 @@ Also accepted: `Date,Session source,Session medium,Session campaign,Session manu
 UTF-8 BOM, `#` comment lines, and dates as `20261024`. No other columns are accepted.
 Remove export totals/summary rows before import. Do not combine overlapping
 exports; duplicate dimension rows, invalid dates, missing/negative metrics fail.
+Local JSON and CSV input is limited to 2 MB per file; `inventory --html` accepts
+up to 2 MiB. Both use bounded byte reads, and CSV fields are limited to 1 MB.
+Oversized, malformed, or invalid UTF-8 input fails before replacing saved data.
+Quoted multiline CSV fields are supported.
 
 ```powershell
 py -3 marketing/traffic-growth/traffic_growth.py report --ga4-csv path/to/ga4.csv
@@ -152,15 +169,37 @@ this is a planning scaffold, not a recommendation to repost it every day. Review
 spacing and rewrite angles manually. Re-running preserves recorded statuses.
 
 ```powershell
-py -3 marketing/traffic-growth/traffic_growth.py calendar --entry 1 --status approved --reviewed
+py -3 marketing/traffic-growth/traffic_growth.py calendar --entry 1 --status approved --draft-id YOUR_DRAFT_ID --reviewed
 py -3 marketing/traffic-growth/traffic_growth.py calendar --entry 1 --status published --reviewed
 ```
 
 Only `draft -> approved -> published` is allowed. `--reviewed` is your explicit
-attestation that review or external publication occurred. `published` only records
-that fact locally; it never publishes. Calendar slots and draft files are separate:
-slot approval does not automatically certify a particular draft file. Verify its
-source hash against the current inventory before use.
+attestation that you manually reviewed the exact saved draft. Approval stores its
+draft ID and SHA-256 of the exact body. Before an approval is used, the CLI checks
+that the draft still exists and its ID, source, platform and content hash match.
+The SHA-256 detects content changes relative to the approval record; it does not
+authenticate who approved the text. A local user who can edit both draft and
+calendar JSON can forge an approval record. Keep the data directory private and
+have the operator review the exact draft manually before approval.
+An edited, removed or legacy unbound pending approval is invalidated to `draft`.
+If a previously `published` local record's draft changes, the historical status
+remains and its approval is marked invalid. The `published` status only records a
+manual action locally; no publishing API or automatic publication path exists.
+
+## Offline CLI smoke check
+
+With a saved UTF-8 article fixture, the following commands do not contact the
+website or a model server:
+
+```powershell
+py -3 marketing/traffic-growth/traffic_growth.py --data $env:TEMP\hermes-traffic-smoke inventory --url https://ta551.info/blog/wazuh-ai-security-lab/ --html path\to\saved-article.html
+py -3 marketing/traffic-growth/traffic_growth.py --data $env:TEMP\hermes-traffic-smoke calendar --start 2026-10-23
+py -3 marketing/traffic-growth/traffic_growth.py --data $env:TEMP\hermes-traffic-smoke report
+```
+
+The checked-in unit test runs these same offline CLI operations with synthetic
+HTML in an isolated temporary directory. Replace the fixture path with a saved
+article file; the supplied URL is only its catalog identity.
 
 ## Validation
 
@@ -169,9 +208,16 @@ py -3 -m unittest discover -s tests -v
 py -3 -m py_compile marketing/traffic-growth/traffic_growth.py
 ```
 
-The suite includes all 22 original tests and 9 local AI regression tests (31 total).
-Protocol and error-path tests use mocks. Separately, a real inference through the
-main CLI with `qwen3.5-4b-instruct` passed exact-quote validation: `finish_reason:
-stop`, 1668 prompt tokens, 148 completion tokens, 0 reasoning tokens. The demo
-inventory was retrieved from the live case-study URL. Runtime captures and GA4
-data stay outside version control by default.
+The current complete suite contains 54 tests, including the SEO monitor and
+Traffic Growth regression tests. It ran on Windows with Python 3.10.0. Both
+provider protocols, model identity checks, errors, and offline CLI commands are
+tested without network access; this validation run did not contact LM Studio or
+Ollama. An earlier project phase recorded a successful real LM Studio inference
+with `qwen3.5-4b-instruct`; that historical result was not repeated here. Runtime
+captures and GA4 data stay outside version control by default.
+
+Known limits: this run did not test Linux or other Python versions. Symlink checks
+cannot portably detect every Windows reparse point or eliminate path races. The
+workflow supports one writer per data directory; simultaneous writes are not
+serialized. Exact source quotes do not establish independent factual truth, and
+human review remains required before approval or any manual publication.
