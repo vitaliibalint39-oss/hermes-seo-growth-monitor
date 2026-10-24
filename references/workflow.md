@@ -1,5 +1,77 @@
 # Stage reference
 
+## 0. Canonical resume checkpoints (v1.1.0)
+
+### Windows terminal guard (v1.1.1)
+
+Hermes may display `bash -c` around a terminal operation while actually
+running on Windows. Before a local command, use an absolute script path and
+full `C:\Users\...\Documents\Hermes-SEO\<run-id>` run path.
+Do not use a relative run ID or assume `python.exe` / `python3` exists on PATH.
+
+Known verified Python executable (this installation):
+`C:\Users\Vitalik\AppData\Local\Programs\Python\Python310\python.exe`.
+In PowerShell the call operator `&` permits absolute `.exe` paths.
+If only the Bash terminal bridge is exposed, use the Windows executable
+as a fully qualified `/c/Users/.../python.exe` path **once**, passing a full
+Windows run path. If it fails, **stop**, save the checkpoint, and have the
+user run the PowerShell command directly. Repeated `cd`, `find`, `python3`
+and `execute_code` probing only consumes local-model context.
+
+The presence of `plan.json` does not mean request evidence was saved.
+Count completed labels with `status`; then call `next`. Invoke a single
+native MCP request, store its **raw actual JSON** as a file, `capture`, and
+verify `status` again. Native tool calls must not be routed through Bash,
+PowerShell, custom Python adapters, or web search.
+
+The installed `scripts/monitor.py` is an **offline state machine**, not an MCP
+client. Keep all calls to `mcp__seo_traffic__*` inside Hermes' native tool
+interface with normal approval checks. Use the Windows `py -3.10` launcher if
+the `python` PATH alias launches Microsoft Store.
+
+Once a run has been initialized, **reuse its path forever for that audit**.
+Never run `init` again just because Hermes restarted. For example:
+
+```powershell
+$skill = "$env:LOCALAPPDATA\hermes\skills\seo-growth-monitor\scripts\monitor.py"
+$run = "$env:USERPROFILE\Documents\Hermes-SEO\20261019-185223-e9def6"
+py -3.10 "$skill" status --run "$run"
+py -3.10 "$skill" next --run "$run"
+```
+
+- `status` emits actual planned/completed/missing/invalid counts and labels.
+- `next` returns **one** pending `mcp__seo_traffic__*` callable and its exact
+  arguments, or `blocked_invalid`, `no_eligible_requests`, or `complete`.
+- Invoke the returned callable in **one native MCP tool_call entry**, not via
+  Python, shell, browser, generated adapters or multi-call batching.
+- Persist the **complete real response JSON** using Hermes' existing local
+  file-writing facility. Do not retype or derive numbers from a summary.
+  `capture` reads that file and wraps it with the canonical planned arguments:
+
+```powershell
+py -3.10 "$skill" capture --run "$run" --site ta551.info --label gsc-previous7 --response "$run\raw-response.json"
+py -3.10 "$skill" status --run "$run"
+py -3.10 "$skill" next --run "$run"
+```
+
+Use the label and site returned by `next`, not the illustrative example above.
+Capture refuses to overwrite an existing evidence file. A saved record can be
+`invalid` (wrong scope/date, provider error or malformed metrics); `next`
+halts at it rather than silently skipping. Fix such records only through an
+explicit separately authorized correction, without deleting evidence.
+An empty successful Google response can count as captured but means unknown
+metrics, NOT zero. For providers lacking native tools, use explicit
+`next --skip-tool analytics_advanced` to work on other tool classes;
+skipped requests **remain missing** in `status`.
+
+Hermes sometimes has a single-entry-per-call limitation and/or a limited local
+context budget. One entry per tool_call is normal. If it cannot do a second
+tool invocation or reaches context limits, output the run path, the last
+verified evidence label and `next` result, then resume in a fresh session.
+Never claim all records complete until `status` confirms it; never substitute
+hand-written `*.md` summaries for `monitor.py render`.
+
+
 ## 1. Start and tool compatibility
 
 ### Native tools first
