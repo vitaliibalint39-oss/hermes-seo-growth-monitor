@@ -1,6 +1,9 @@
 # Private local configuration and captured reporting evidence
 config.json
 Hermes-SEO/
+**/secrets.json
+*.tmp
+*.tmp.*
 *.log
 .env
 .env.*
